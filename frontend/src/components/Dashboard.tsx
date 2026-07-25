@@ -333,9 +333,17 @@ const eventDetailsData: Record<number, {
 
 // Campus Circulars static data
 const campusCirculars = [
-  { id: 1, title: "Department Course Registration Deadline", date: "July 20, 2026", description: "Students in CSE, ECE, AI DS, AI ML, EEE, ICE, MECH, and AERO must finalize elective approvals with their respective designated HODs.", tag: "URGENT", style: "border-red-500/30 text-red-400 bg-red-950/20" },
-  { id: 2, title: "Calibration of Lab Oscilloscopes & Drone Kits", date: "July 22, 2026", description: "The Instrumentation (ICE) and Aerospace (AERO) labs are hosting a joint hardware precision tuning workshop for freshman microcontroller boards.", tag: "WORKSHOP", style: "border-cyber-blue/30 text-cyber-blue bg-cyber-blue/10" },
-  { id: 3, title: "Centralized End-Semester Exam Schedule Release", date: "July 24, 2026", description: "The exam cell has uploaded the test matrices and seating arrangements. Please check the integrated Timetable and Exam viewer for details.", tag: "ACADEMICS", style: "border-yellow-500/30 text-yellow-400 bg-yellow-950/20" }
+  {
+    id: 1,
+    title: "🎉 OFFICIAL CIRCULAR: Freshers Party 2026 Announcement",
+    date: "Tomorrow (July 26, 2026)",
+    description: "Welcome Freshers! Showcase your talent at the Grand Freshers Party 2026 tomorrow at Silver Jubilee Auditorium (04:00 PM - 08:00 PM). DJ Music, Dance Floor, Stage Performances & Refreshments!",
+    tag: "GRAND EVENT",
+    style: "border-cyber-neon/50 text-cyber-neon bg-emerald-950/40 shadow-lg shadow-cyber-neon/10",
+    image: "/assets/freshers_party.jpg"
+  },
+  { id: 2, title: "Department Course Registration Deadline", date: "July 26, 2026", description: "Students in CSE, ECE, AI DS, AI ML, EEE, ICE, MECH, and AERO must finalize elective approvals with their respective designated HODs.", tag: "URGENT", style: "border-red-500/30 text-red-400 bg-red-950/20" },
+  { id: 3, title: "Centralized End-Semester Exam Schedule Release", date: "July 26, 2026", description: "The exam cell has uploaded the test matrices and seating arrangements. Please check the integrated Timetable and Exam viewer for details.", tag: "ACADEMICS", style: "border-yellow-500/30 text-yellow-400 bg-yellow-950/20" }
 ];
 
 const getClubEvents = (clubId: number, events: CampusEvent[]): CampusEvent[] => {
@@ -989,14 +997,38 @@ export default function Dashboard({ user, onLogout, notifications, onTriggerNoti
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {campusCirculars.map((circ) => (
-                      <div key={circ.id} className={`p-4 rounded-xl border ${circ.style} space-y-1.5 backdrop-blur-sm relative overflow-hidden`}>
-                        <div className="absolute top-0 right-0 w-16 h-16 bg-white/2 rotate-45 translate-x-8 -translate-y-8" />
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded border border-white/15 uppercase bg-white/5">{circ.tag}</span>
-                          <span className="text-[9px] font-mono text-gray-400">{circ.date}</span>
+                      <div key={circ.id} className={`p-4 rounded-xl border ${circ.style} space-y-2 backdrop-blur-sm relative overflow-hidden flex flex-col justify-between`}>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded border border-white/15 uppercase bg-white/5">{circ.tag}</span>
+                            <span className="text-[9px] font-mono text-gray-300 font-bold">{circ.date}</span>
+                          </div>
+                          {circ.image && (
+                            <div className="h-32 rounded-lg overflow-hidden border border-cyber-neon/40 relative my-1">
+                              <img src={circ.image} alt={circ.title} className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-2">
+                                <span className="text-[10px] font-mono text-cyber-neon font-bold uppercase tracking-wider">🎉 OFFICIAL POSTER ANNOUNCEMENT</span>
+                              </div>
+                            </div>
+                          )}
+                          <h4 className="text-xs font-sans font-bold text-white uppercase tracking-wide leading-tight">{circ.title}</h4>
+                          <p className="text-[10px] text-gray-300 leading-relaxed">{circ.description}</p>
                         </div>
-                        <h4 className="text-xs font-sans font-bold text-white uppercase tracking-wide leading-tight">{circ.title}</h4>
-                        <p className="text-[10px] text-gray-300 leading-relaxed">{circ.description}</p>
+
+                        {circ.image && (
+                          <button
+                            onClick={() => {
+                              const partyEvent = events.find(e => e.id === 8 || e.title.includes("Freshers Party"));
+                              if (partyEvent) {
+                                setEventForTermsModal(partyEvent);
+                                setAcceptedEventTerms(false);
+                              }
+                            }}
+                            className="w-full mt-2 py-2 px-3 bg-cyber-neon hover:bg-emerald-400 text-cyber-dark font-mono text-xs font-black uppercase rounded-lg shadow-md shadow-cyber-neon/20 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            🎟️ REGISTER FOR FRESHERS PARTY 2026
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1010,8 +1042,25 @@ export default function Dashboard({ user, onLogout, notifications, onTriggerNoti
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredEvents.map((ev) => {
-                      const isPast = ev.category === 'past';
-                      const isCurrent = ev.category === 'current';
+                      // Parse event end time to check if event has physically expired
+                      const parseEventEnd = (date: string, timeRange: string): Date | null => {
+                        try {
+                          const endPart = timeRange.includes('-') ? timeRange.split('-').pop()?.trim() : null;
+                          if (!endPart) return null;
+                          const [timePart, meridiem] = endPart.match(/(\d+:\d+)\s*(AM|PM)/i)?.slice(1) || [];
+                          if (!timePart || !meridiem) return null;
+                          let [hours, mins] = timePart.split(':').map(Number);
+                          if (meridiem.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+                          if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                          const d = new Date(date);
+                          d.setHours(hours, mins, 0, 0);
+                          return d;
+                        } catch { return null; }
+                      };
+                      const eventEnd = parseEventEnd(ev.date, ev.time);
+                      const isExpired = eventEnd ? new Date() > eventEnd : false;
+                      const isPast = ev.category === 'past' || isExpired;
+                      const isCurrent = ev.category === 'current' && !isExpired;
                       return (
                         <motion.div
                           key={ev.id}
@@ -1070,6 +1119,18 @@ export default function Dashboard({ user, onLogout, notifications, onTriggerNoti
                                 <MapPin className="w-3.5 h-3.5 text-cyber-blue" />
                                 <span>{ev.venue}</span>
                               </div>
+                              {isPast && isExpired && (
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono text-red-400 bg-red-950/30 border border-red-500/20 rounded px-2 py-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span>
+                                  Registration Closed — Event Expired
+                                </div>
+                              )}
+                              {!isPast && (
+                                <div className="flex items-center gap-1.5 text-[10px] font-mono text-cyber-neon bg-emerald-950/30 border border-cyber-neon/20 rounded px-2 py-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-cyber-neon inline-block animate-pulse"></span>
+                                  Registration open until end of event
+                                </div>
+                              )}
                             </div>
 
                             {/* CTAs */}

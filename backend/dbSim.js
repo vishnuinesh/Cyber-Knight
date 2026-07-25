@@ -59,7 +59,7 @@ const initialEvents = [
     id: 1,
     title: "Freshers Orientation 2026",
     description: "Welcome to Cyber Knight Academy! Get to know your campus, faculty, and peers. Discover essential resources, student clubs, and take a guided tour of our modern engineering labs.",
-    date: "2026-07-15",
+    date: "2026-07-20",
     time: "09:00 AM - 01:00 PM",
     venue: "Main Convocation Hall",
     category: "past",
@@ -71,7 +71,7 @@ const initialEvents = [
     id: 2,
     title: "Campus Coding Hackathon v1.0",
     description: "A fast-paced 12-hour hackathon to solve real campus problems. Build web solutions, work in teams, and win exciting tech prizes and mentorship opportunities.",
-    date: "2026-07-18",
+    date: "2026-07-22",
     time: "08:00 AM - 08:00 PM",
     venue: "Cyber Labs - Block B",
     category: "past",
@@ -83,10 +83,10 @@ const initialEvents = [
     id: 3,
     title: "Cyber Knight Capture The Flag (CTF)",
     description: "The ultimate cybersecurity showdown! Test your skills in cryptography, reverse engineering, web exploitation, and forensics. Perfect for freshers starting their security journey.",
-    date: "2026-07-19",
+    date: "2026-07-26",
     time: "10:00 AM - 06:00 PM",
     venue: "Advanced Networks Laboratory",
-    category: "current",
+    category: "upcoming",
     eligibleYear: "All Years",
     imageUrl: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&auto=format&fit=crop&q=60",
     registrationCount: 89
@@ -95,10 +95,10 @@ const initialEvents = [
     id: 4,
     title: "Annual Club Exhibition Expo",
     description: "Explore and interact with all active student clubs. From Robotics and Cybersecurity to Drama and Literary clubs, find your community and register on the spot.",
-    date: "2026-07-20",
+    date: "2026-07-26",
     time: "11:00 AM - 04:00 PM",
     venue: "Student Activity Center (SAC) Courtyard",
-    category: "current",
+    category: "upcoming",
     eligibleYear: "All Years",
     imageUrl: "https://images.unsplash.com/photo-1511578314322-379afb476865?w=800&auto=format&fit=crop&q=60",
     registrationCount: 235
@@ -107,7 +107,7 @@ const initialEvents = [
     id: 5,
     title: "AI & Neural Networks Seminar",
     description: "An introductory session on machine learning, generative models, and neural network architectures. Led by senior industry experts and research faculty.",
-    date: "2026-07-24",
+    date: "2026-07-26",
     time: "02:00 PM - 04:30 PM",
     venue: "Newton Seminar Hall (Block A)",
     category: "upcoming",
@@ -131,7 +131,7 @@ const initialEvents = [
     id: 7,
     title: "Robotics Design & Assembly Workshop",
     description: "Hands-on workshop using Arduino boards and motor drivers. Learn structural assembly, basic motor control, and sensor integration to build your first autonomous rover.",
-    date: "2026-08-12",
+    date: "2026-07-26",
     time: "10:00 AM - 04:00 PM",
     venue: "Robotics Lab (Room 205, Block C)",
     category: "upcoming",
@@ -143,13 +143,13 @@ const initialEvents = [
     id: 8,
     title: "Freshers Party 2026",
     description: "Welcome Freshers! This is an opportunity for the newcomers to showcase their talent. Scan the QR code to register (signup through your roll number). Highlights: DJ Music, Dance Floor, Stage Performances by seniors and batchmates, and delicious refreshments!",
-    date: "2026-07-25",
+    date: "2026-07-26",
     time: "04:00 PM - 08:00 PM",
     venue: "Silver Jubilee Auditorium",
     category: "upcoming",
     eligibleYear: "1st Year Only",
     imageUrl: "/assets/freshers_party.jpg",
-    registrationCount: 0
+    registrationCount: 42
   }
 ];
 
@@ -678,6 +678,12 @@ export class CyberKnightDB {
       return { success: false, error: "Event not found" };
     }
     const event = eventQuery.rows[0];
+
+    // Expiration and registration deadline check
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (event.category === 'past' || (event.date && event.date < todayStr)) {
+      return { success: false, error: "Registration closed! This event has already expired." };
+    }
 
     const regCheck = this.executeSQL("SELECT * FROM registrations WHERE roll_number = ? AND event_id = ?", [rollNumber, eventId]);
     if (regCheck.success && regCheck.rows && regCheck.rows.length > 0) {
