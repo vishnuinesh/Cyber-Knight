@@ -1,14 +1,11 @@
-import type { CampusEvent, Club, Faculty, TimetableItem, User, Registration, Notification, SQLQueryLog } from '../frontend/src/types';
-
 // ===================================================================
-// Cyber Knight In-Memory Database
+// Cyber Knight In-Memory Database (JavaScript)
 // Fully Vercel-compatible: no filesystem, no node:sqlite, no binaries.
-// Data resets on cold start (acceptable for demo/portfolio apps).
 // ===================================================================
 
 // ---------- Seed Data ----------
 
-const initialEvents: CampusEvent[] = [
+const initialEvents = [
   {
     id: 1,
     title: "Freshers Orientation 2026",
@@ -107,7 +104,7 @@ const initialEvents: CampusEvent[] = [
   }
 ];
 
-const initialClubs: Club[] = [
+const initialClubs = [
   {
     id: 1,
     name: "Cyber Knight Security Club",
@@ -146,7 +143,7 @@ const initialClubs: Club[] = [
   }
 ];
 
-const initialFaculty: Faculty[] = [
+const initialFaculty = [
   // Computer Science (CSE)
   { id: 1, name: "Dr. Alan Turing", department: "Computer Science (CSE)", designation: "Professor & HOD", email: "alan.turing@cyberknight.edu", office: "Room 401, CSE Block" },
   { id: 2, name: "Prof. Linus Torvalds", department: "Computer Science (CSE)", designation: "Senior Lecturer", email: "linus.torvalds@cyberknight.edu", office: "Room 402, CSE Block" },
@@ -204,7 +201,7 @@ const initialFaculty: Faculty[] = [
   { id: 40, name: "Dr. Kelly Johnson", department: "Civil & Aerospace (AERO)", designation: "Senior Lecturer", email: "kelly.johnson@cyberknight.edu", office: "Room 705, AERO Block" }
 ];
 
-const initialTimetable: TimetableItem[] = [
+const initialTimetable = [
   { id: 1, day: "Monday", timeSlot: "09:00 AM - 10:30 AM", subject: "Introduction to Programming", room: "Lab 101, Block A", facultyName: "Dr. Alan Turing", courseCode: "CSE-101" },
   { id: 2, day: "Monday", timeSlot: "11:00 AM - 12:30 PM", subject: "Applied Physics & Quantum Mechanics", room: "Room 302, Block B", facultyName: "Dr. Richard Feynman", courseCode: "PHY-103" },
   { id: 3, day: "Tuesday", timeSlot: "09:00 AM - 10:30 AM", subject: "Calculus & Linear Algebra", room: "Room 205, Block B", facultyName: "Dr. Ada Lovelace", courseCode: "MAT-101" },
@@ -216,36 +213,9 @@ const initialTimetable: TimetableItem[] = [
   { id: 9, day: "Friday", timeSlot: "10:00 AM - 12:00 PM", subject: "Open Source Systems Lab", room: "Lab 310, Block A", facultyName: "Prof. Linus Torvalds", courseCode: "CSE-108" }
 ];
 
-// ---------- In-Memory Table Store ----------
-
-interface TableStore {
-  users: (User & { password: string })[];
-  events: CampusEvent[];
-  clubs: Club[];
-  faculty: Faculty[];
-  timetable: TimetableItem[];
-  registrations: Registration[];
-  notifications: Notification[];
-  queryLogs: SQLQueryLog[];
-}
-
-// Auto-increment ID counters
-interface IdCounters {
-  events: number;
-  clubs: number;
-  faculty: number;
-  timetable: number;
-  registrations: number;
-  notifications: number;
-  queryLogs: number;
-}
-
 // ---------- The Database Class ----------
 
 export class CyberKnightDB {
-  private store: TableStore;
-  private ids: IdCounters;
-
   constructor() {
     // Initialize store with seed data
     this.store = {
@@ -277,11 +247,11 @@ export class CyberKnightDB {
 
   // ---------- Query Log ----------
 
-  public getQueryLog(): SQLQueryLog[] {
+  getQueryLog() {
     return [...this.store.queryLogs].reverse().slice(0, 200);
   }
 
-  private logQuery(query: string, success: boolean, rowsCount: number, error?: string): void {
+  logQuery(query, success, rowsCount, error) {
     this.store.queryLogs.push({
       id: this.ids.queryLogs++,
       query,
@@ -294,20 +264,11 @@ export class CyberKnightDB {
 
   // ---------- SQL Executor (simulated for in-memory store) ----------
 
-  /**
-   * Simulated SQL executor that maps common SQL queries to in-memory operations.
-   * Supports SELECT * FROM <table>, INSERT INTO, UPDATE, DELETE, and WHERE clauses.
-   */
-  public executeSQL(
-    sql: string,
-    params: any[] = [],
-    log: boolean = false
-  ): { success: boolean; rows?: any[]; affectedRows?: number; error?: string } {
+  executeSQL(sql, params = [], log = false) {
     const cleanSql = sql.trim();
     const queryLower = cleanSql.toLowerCase();
 
     try {
-      // Route to the correct table/operation
       if (queryLower.startsWith('select')) {
         return this.handleSelect(cleanSql, queryLower, params, log);
       } else if (queryLower.startsWith('insert')) {
@@ -317,7 +278,6 @@ export class CyberKnightDB {
       } else if (queryLower.startsWith('delete')) {
         return this.handleDelete(cleanSql, queryLower, params, log);
       } else if (queryLower.startsWith('pragma') || queryLower.startsWith('show')) {
-        // Return schema info for PRAGMA/SHOW commands
         const tables = ['users', 'events', 'clubs', 'faculty', 'timetable', 'registrations', 'notifications', 'query_logs'];
         if (log) this.logQuery(cleanSql, true, tables.length);
         return { success: true, rows: tables.map(t => ({ name: t })) };
@@ -325,15 +285,15 @@ export class CyberKnightDB {
         if (log) this.logQuery(cleanSql, false, 0, 'Unsupported SQL operation in demo mode.');
         return { success: false, error: 'Unsupported SQL operation in demo mode. Supported: SELECT, INSERT, UPDATE, DELETE.' };
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("[SQL Execution Error]:", cleanSql, err);
       if (log) this.logQuery(cleanSql, false, 0, err.message);
       return { success: false, error: err.message };
     }
   }
 
-  private getTableByName(tableName: string): any[] | null {
-    const map: Record<string, any[]> = {
+  getTableByName(tableName) {
+    const map = {
       users: this.store.users,
       events: this.store.events,
       clubs: this.store.clubs,
@@ -346,29 +306,24 @@ export class CyberKnightDB {
     return map[tableName] || null;
   }
 
-  private extractTableName(queryLower: string): string | null {
-    // Match "FROM <table>" or "INTO <table>" or "UPDATE <table>"
+  extractTableName(queryLower) {
     const fromMatch = queryLower.match(/(?:from|into|update)\s+(\w+)/);
     return fromMatch ? fromMatch[1] : null;
   }
 
-  private handleSelect(
-    sql: string, queryLower: string, params: any[], log: boolean
-  ): { success: boolean; rows?: any[]; error?: string } {
+  handleSelect(sql, queryLower, params, log) {
     const tableName = this.extractTableName(queryLower);
     if (!tableName) {
       if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
       return { success: false, error: 'Could not determine table name from query.' };
     }
 
-    // Special: last_insert_rowid()
     if (queryLower.includes('last_insert_rowid')) {
       const id = Math.max(this.ids.notifications - 1, 0);
       if (log) this.logQuery(sql, true, 1);
       return { success: true, rows: [{ id }] };
     }
 
-    // Special: COUNT(*)
     if (queryLower.includes('count(*)')) {
       const table = this.getTableByName(tableName);
       if (!table) {
@@ -388,19 +343,17 @@ export class CyberKnightDB {
 
     let rows = this.applyWhere(table, queryLower, params, tableName);
 
-    // Handle ORDER BY
     const orderMatch = queryLower.match(/order\s+by\s+(\w+)\s*(asc|desc)?/);
     if (orderMatch) {
       const orderCol = this.snakeToCamel(orderMatch[1]);
       const desc = orderMatch[2] === 'desc';
-      rows.sort((a: any, b: any) => {
+      rows.sort((a, b) => {
         if (a[orderCol] < b[orderCol]) return desc ? 1 : -1;
         if (a[orderCol] > b[orderCol]) return desc ? -1 : 1;
         return 0;
       });
     }
 
-    // Handle LIMIT
     const limitMatch = queryLower.match(/limit\s+(\d+)/);
     if (limitMatch) {
       rows = rows.slice(0, parseInt(limitMatch[1], 10));
@@ -410,16 +363,13 @@ export class CyberKnightDB {
     return { success: true, rows };
   }
 
-  private handleInsert(
-    sql: string, queryLower: string, params: any[], log: boolean
-  ): { success: boolean; affectedRows?: number; error?: string } {
+  handleInsert(sql, queryLower, params, log) {
     const tableName = this.extractTableName(queryLower);
     if (!tableName) {
       if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
       return { success: false, error: 'Could not determine table name from query.' };
     }
 
-    // Extract column names from SQL
     const colMatch = sql.match(/\(([^)]+)\)\s*values/i);
     if (!colMatch) {
       if (log) this.logQuery(sql, false, 0, 'Could not parse column names');
@@ -427,17 +377,15 @@ export class CyberKnightDB {
     }
 
     const columns = colMatch[1].split(',').map(c => this.snakeToCamel(c.trim()));
-    const row: any = {};
+    const row = {};
 
     columns.forEach((col, i) => {
       row[col] = params[i] !== undefined ? params[i] : null;
     });
 
-    // Add auto-increment ID if not provided
     if (!row.id) {
-      const idKey = tableName as keyof IdCounters;
-      if (this.ids[idKey] !== undefined) {
-        row.id = this.ids[idKey]++;
+      if (this.ids[tableName] !== undefined) {
+        row.id = this.ids[tableName]++;
       }
     }
 
@@ -447,23 +395,21 @@ export class CyberKnightDB {
       return { success: false, error: `Table '${tableName}' not found.` };
     }
 
-    // Check UNIQUE constraints for users
     if (tableName === 'users') {
-      if (table.find((u: any) => u.rollNumber === row.rollNumber)) {
+      if (table.find(u => u.rollNumber === row.rollNumber)) {
         const err = `UNIQUE constraint failed: users.roll_number`;
         if (log) this.logQuery(sql, false, 0, err);
         return { success: false, error: err };
       }
-      if (table.find((u: any) => u.email === row.email)) {
+      if (table.find(u => u.email === row.email)) {
         const err = `UNIQUE constraint failed: users.email`;
         if (log) this.logQuery(sql, false, 0, err);
         return { success: false, error: err };
       }
     }
 
-    // Check UNIQUE constraint for registrations (roll_number + event_id)
     if (tableName === 'registrations') {
-      if (table.find((r: any) => r.rollNumber === row.rollNumber && r.eventId === row.eventId)) {
+      if (table.find(r => r.rollNumber === row.rollNumber && r.eventId === row.eventId)) {
         const err = `UNIQUE constraint failed: registrations.roll_number, registrations.event_id`;
         if (log) this.logQuery(sql, false, 0, err);
         return { success: false, error: err };
@@ -475,9 +421,7 @@ export class CyberKnightDB {
     return { success: true, affectedRows: 1 };
   }
 
-  private handleUpdate(
-    sql: string, queryLower: string, params: any[], log: boolean
-  ): { success: boolean; affectedRows?: number; error?: string } {
+  handleUpdate(sql, queryLower, params, log) {
     const tableName = this.extractTableName(queryLower);
     if (!tableName) {
       if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
@@ -490,7 +434,6 @@ export class CyberKnightDB {
       return { success: false, error: `Table '${tableName}' not found.` };
     }
 
-    // Extract SET clauses
     const setMatch = sql.match(/set\s+(.+?)(?:\s+where\s+|$)/i);
     if (!setMatch) {
       if (log) this.logQuery(sql, false, 0, 'Could not parse SET clause');
@@ -500,7 +443,6 @@ export class CyberKnightDB {
     const rows = this.applyWhere(table, queryLower, params, tableName);
     let affected = 0;
 
-    // Parse SET assignments
     const setClauses = setMatch[1].split(',').map(c => c.trim());
 
     for (const row of rows) {
@@ -509,7 +451,6 @@ export class CyberKnightDB {
 
       let paramIdx = 0;
       for (const clause of setClauses) {
-        // Handle "col = ?" pattern
         const eqMatch = clause.match(/(\w+)\s*=\s*\?/);
         if (eqMatch) {
           const col = this.snakeToCamel(eqMatch[1]);
@@ -517,7 +458,6 @@ export class CyberKnightDB {
           continue;
         }
 
-        // Handle "col = col + 1" or "col = col - 1"
         const incrMatch = clause.match(/(\w+)\s*=\s*\1\s*\+\s*(\d+)/);
         if (incrMatch) {
           const col = this.snakeToCamel(incrMatch[1]);
@@ -525,7 +465,6 @@ export class CyberKnightDB {
           continue;
         }
 
-        // Handle "col = CASE WHEN col > 0 THEN col - 1 ELSE 0 END"
         const caseDecrMatch = clause.match(/(\w+)\s*=\s*case\s+when\s+\1\s*>\s*0\s+then\s+\1\s*-\s*1\s+else\s+0\s+end/i);
         if (caseDecrMatch) {
           const col = this.snakeToCamel(caseDecrMatch[1]);
@@ -540,9 +479,7 @@ export class CyberKnightDB {
     return { success: true, affectedRows: affected };
   }
 
-  private handleDelete(
-    sql: string, queryLower: string, params: any[], log: boolean
-  ): { success: boolean; affectedRows?: number; error?: string } {
+  handleDelete(sql, queryLower, params, log) {
     const tableName = this.extractTableName(queryLower);
     if (!tableName) {
       if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
@@ -570,19 +507,15 @@ export class CyberKnightDB {
     return { success: true, affectedRows: affected };
   }
 
-  // ---------- WHERE Clause Filter ----------
-
-  private applyWhere(table: any[], queryLower: string, params: any[], tableName: string): any[] {
+  applyWhere(table, queryLower, params, tableName) {
     const whereMatch = queryLower.match(/where\s+(.+?)(?:\s+order|\s+limit|\s+group|\s*$)/i);
     if (!whereMatch) return [...table];
 
     const whereClause = whereMatch[1].trim();
 
-    // Split by AND
     const conditions = whereClause.split(/\s+and\s+/i);
     let paramIdx = 0;
 
-    // Count how many params are used by SET clause in UPDATE queries
     if (queryLower.startsWith('update')) {
       const setMatch = queryLower.match(/set\s+(.+?)\s+where/i);
       if (setMatch) {
@@ -600,31 +533,25 @@ export class CyberKnightDB {
         if (eqMatch) {
           const col = this.snakeToCamel(eqMatch[1]);
           const val = params[localParamIdx++];
-          // Handle type coercion (string vs number)
           return String(row[col]) === String(val);
         }
 
-        // Handle "col = 'value'" literal
         const litMatch = cond.match(/(\w+)\s*=\s*'([^']+)'/);
         if (litMatch) {
           const col = this.snakeToCamel(litMatch[1]);
           return String(row[col]) === litMatch[2];
         }
 
-        return true; // Unknown condition — include row
+        return true;
       });
     });
   }
 
-  // ---------- Helper ----------
-
-  private snakeToCamel(s: string): string {
+  snakeToCamel(s) {
     return s.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
   }
 
-  // ---------- Auth Operations ----------
-
-  public signup(rollNumber: string, email: string, pass: string): { success: boolean; error?: string } {
+  signup(rollNumber, email, pass) {
     const existing = this.executeSQL("SELECT * FROM users WHERE roll_number = ?", [rollNumber]);
     if (existing.success && existing.rows && existing.rows.length > 0) {
       return { success: false, error: `User ID ${rollNumber} is already registered.` };
@@ -643,18 +570,18 @@ export class CyberKnightDB {
     return { success: false, error: res.error || "Failed to create user" };
   }
 
-  public login(rollNumber: string, pass: string): { success: boolean; user?: User; error?: string } {
+  login(rollNumber, pass) {
     const res = this.executeSQL("SELECT * FROM users WHERE roll_number = ?", [rollNumber]);
     if (res.success && res.rows && res.rows.length > 0) {
-      const user = res.rows[0] as any;
+      const user = res.rows[0];
       if (user.password === pass) {
-        return { success: true, user: { rollNumber: user.rollNumber, email: user.email, joinedAt: user.joinedAt } as User };
+        return { success: true, user: { rollNumber: user.rollNumber, email: user.email, joinedAt: user.joinedAt } };
       }
     }
     return { success: false, error: "Invalid User ID or Password." };
   }
 
-  public resetPassword(email: string, pass: string): { success: boolean; error?: string } {
+  resetPassword(email, pass) {
     const existing = this.executeSQL("SELECT * FROM users WHERE email = ?", [email]);
     if (!existing.success || !existing.rows || existing.rows.length === 0) {
       return { success: false, error: `No account found with email ${email}.` };
@@ -670,14 +597,12 @@ export class CyberKnightDB {
     return { success: false, error: updateRes.error || "Failed to reset password." };
   }
 
-  // ---------- Registration & Event Operations ----------
-
-  public registerForEvent(rollNumber: string, eventId: number): { success: boolean; error?: string } {
+  registerForEvent(rollNumber, eventId) {
     const eventQuery = this.executeSQL("SELECT * FROM events WHERE id = ?", [eventId]);
     if (!eventQuery.success || !eventQuery.rows || eventQuery.rows.length === 0) {
       return { success: false, error: "Event not found" };
     }
-    const event = eventQuery.rows[0] as CampusEvent;
+    const event = eventQuery.rows[0];
 
     const regCheck = this.executeSQL("SELECT * FROM registrations WHERE roll_number = ? AND event_id = ?", [rollNumber, eventId]);
     if (regCheck.success && regCheck.rows && regCheck.rows.length > 0) {
@@ -686,7 +611,6 @@ export class CyberKnightDB {
 
     const insertRes = this.executeSQL("INSERT INTO registrations (roll_number, event_id, registered_at) VALUES (?, ?, ?)", [rollNumber, eventId, new Date().toISOString()]);
     if (insertRes.success) {
-      // Increment registration count
       const ev = this.store.events.find(e => e.id === eventId);
       if (ev) ev.registrationCount++;
       this.addNotification(rollNumber, 'email', `Event Registered: ${event.title}`, `Congratulations! You have successfully registered for ${event.title} scheduled on ${event.date} at ${event.time} located in ${event.venue}.`);
@@ -696,7 +620,7 @@ export class CyberKnightDB {
     return { success: false, error: insertRes.error || "Registration failed." };
   }
 
-  public unregisterFromEvent(rollNumber: string, eventId: number): { success: boolean; error?: string } {
+  unregisterFromEvent(rollNumber, eventId) {
     const regCheck = this.executeSQL("SELECT * FROM registrations WHERE roll_number = ? AND event_id = ?", [rollNumber, eventId]);
     if (!regCheck.success || !regCheck.rows || regCheck.rows.length === 0) {
       return { success: false, error: "You are not registered for this event." };
@@ -704,7 +628,6 @@ export class CyberKnightDB {
 
     const deleteRes = this.executeSQL("DELETE FROM registrations WHERE roll_number = ? AND event_id = ?", [rollNumber, eventId]);
     if (deleteRes.success) {
-      // Decrement registration count
       const ev = this.store.events.find(e => e.id === eventId);
       if (ev) ev.registrationCount = Math.max(ev.registrationCount - 1, 0);
       this.addNotification(rollNumber, 'push', `Registration Cancelled`, `You exited the registration list.`);
@@ -713,10 +636,8 @@ export class CyberKnightDB {
     return { success: false, error: deleteRes.error || "Unregistration failed." };
   }
 
-  // ---------- Notifications ----------
-
-  public addNotification(rollNumber: string, type: 'email' | 'push', title: string, message: string): Notification {
-    const notification: Notification = {
+  addNotification(rollNumber, type, title, message) {
+    const notification = {
       id: this.ids.notifications++,
       rollNumber,
       type,
@@ -729,22 +650,20 @@ export class CyberKnightDB {
     return notification;
   }
 
-  public getNotifications(rollNumber: string): Notification[] {
+  getNotifications(rollNumber) {
     return this.store.notifications
       .filter(n => n.rollNumber === rollNumber)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
 
-  // ---------- Clubs Join / Resign ----------
-
-  public joinClub(clubName: string): { success: boolean; error?: string } {
+  joinClub(clubName) {
     const club = this.store.clubs.find(c => c.name === clubName);
     if (!club) return { success: false, error: "Club not found." };
     club.membersCount++;
     return { success: true };
   }
 
-  public leaveClub(clubName: string): { success: boolean; error?: string } {
+  leaveClub(clubName) {
     const club = this.store.clubs.find(c => c.name === clubName);
     if (!club) return { success: false, error: "Club not found." };
     club.membersCount = Math.max(club.membersCount - 1, 0);

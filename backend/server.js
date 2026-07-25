@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { app, BACKEND_PORT } from "./app";
+import { app, BACKEND_PORT } from "./app.js";
 
 const frontendApp = express();
 const FRONTEND_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;

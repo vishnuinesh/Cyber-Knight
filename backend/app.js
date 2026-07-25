@@ -1,7 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
-import { CyberKnightDB } from "./dbSim";
+import { CyberKnightDB } from "./dbSim.js";
 
 dotenv.config();
 
@@ -31,8 +31,8 @@ app.use((req, res, next) => {
 const db = new CyberKnightDB();
 
 // Initialize the Gemini API client safely (with lazy check so it doesn't crash if key is missing)
-let aiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
+let aiClient = null;
+function getGeminiClient() {
   if (!aiClient) {
     const key = process.env.GEMINI_API_KEY;
     if (key && key !== "MY_GEMINI_API_KEY") {
@@ -47,7 +47,7 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 // Robust JSON extraction helper to handle markdown wrapper backticks, smart quotes, and trailing garbage
-function extractAndParseJSON(text: string): any {
+function extractAndParseJSON(text) {
   const trimmed = text.trim();
   try {
     return JSON.parse(trimmed);
@@ -58,7 +58,7 @@ function extractAndParseJSON(text: string): any {
       const candidate = trimmed.substring(firstBrace, lastBrace + 1);
       try {
         return JSON.parse(candidate);
-      } catch (innerErr: any) {
+      } catch (innerErr) {
         // Basic sanitization
         const cleaned = candidate
           .replace(/[\u201C\u201D]/g, '"') // smart quotes
@@ -305,7 +305,7 @@ app.post("/api/clubs/join", (req, res) => {
       .status(400)
       .json({ success: false, error: "Missing club name" });
   }
-  const result = (db as any).joinClub(clubName);
+  const result = db.joinClub(clubName);
   if (result.success) {
     res.json({ success: true, message: "Joined club successfully!" });
   } else {
@@ -321,7 +321,7 @@ app.post("/api/clubs/leave", (req, res) => {
       .status(400)
       .json({ success: false, error: "Missing club name" });
   }
-  const result = (db as any).leaveClub(clubName);
+  const result = db.leaveClub(clubName);
   if (result.success) {
     res.json({
       success: true,
@@ -375,7 +375,7 @@ app.get("/api/sql/logs", (req, res) => {
 });
 
 // Deterministic student profile helper
-function getStudentProfile(rollNumber: string) {
+function getStudentProfile(rollNumber) {
   let sum = 0;
   for (let i = 0; i < rollNumber.length; i++) {
     sum += rollNumber.charCodeAt(i);
@@ -475,7 +475,7 @@ For help with course registration, fees, or exam schedules, please visit the Aca
         response.text ||
         "I'm here to help, but no text was returned. Please try asking again!",
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("Helpdesk Gemini API error:", err);
     res.status(500).json({
       success: false,
@@ -506,10 +506,10 @@ You are the "Cyber Knight Campus AI", an intelligent, witty, helpful, and techno
 You help university Freshers (1st Year Students) navigate their student portal, campus events, active clubs, teachers/faculty, schedules, and registration.
 
 Here is the REAL-TIME information from the campus SQL Database:
-- CLUBS: ${JSON.stringify(clubs.map((c: any) => ({ name: c.name, lead: c.lead, contact: c.contact })))}
-- FACULTY: ${JSON.stringify(faculty.map((f: any) => ({ name: f.name, dept: f.department, office: f.office })))}
+- CLUBS: ${JSON.stringify(clubs.map((c) => ({ name: c.name, lead: c.lead, contact: c.contact })))}
+- FACULTY: ${JSON.stringify(faculty.map((f) => ({ name: f.name, dept: f.department, office: f.office })))}
 - TIMETABLE: ${JSON.stringify(timetable)}
-- ACTIVE EVENTS: ${JSON.stringify(events.map((e: any) => ({ title: e.title, date: e.date, venue: e.venue, category: e.category, eligible: e.eligibleYear })))}
+- ACTIVE EVENTS: ${JSON.stringify(events.map((e) => ({ title: e.title, date: e.date, venue: e.venue, category: e.category, eligible: e.eligibleYear })))}
 
 User Information:
 - Current Roll Number: ${rollNumber || "Not logged in"}
@@ -550,9 +550,9 @@ User's Query: "${message}"
 
   try {
     // Format conversation history for Gemini API
-    const formattedContents: any[] = [];
+    const formattedContents = [];
     if (history && Array.isArray(history)) {
-      history.forEach((chat: any) => {
+      history.forEach((chat) => {
         formattedContents.push({
           role: chat.sender === "user" ? "user" : "model",
           parts: [{ text: chat.text }],
@@ -575,7 +575,7 @@ User's Query: "${message}"
       response.text ||
       "Connection secure, but no signal returned from command node. Try again!";
     res.json({ success: true, reply });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Gemini API calling error:", error);
     res.status(500).json({
       success: false,
