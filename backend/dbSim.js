@@ -1,3 +1,52 @@
+import crypto from 'crypto';
+
+// Secret Master Key for AES-256 encryption & HMAC
+const SECRET_KEY = process.env.ENCRYPTION_SECRET || 'cyber-knight-master-secret-key-2026-v1';
+const CIPHER_KEY = crypto.createHash('sha256').update(SECRET_KEY).digest();
+
+// Cryptographic Password Hashing (PBKDF2-SHA512 + Salt)
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return `pbkdf2:${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedValue) {
+  if (!storedValue) return false;
+  if (!storedValue.startsWith('pbkdf2:')) {
+    return password === storedValue;
+  }
+  const parts = storedValue.split(':');
+  const salt = parts[1];
+  const storedHash = parts[2];
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+}
+
+// AES-256-CBC User ID Encryption
+function encryptText(text) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', CIPHER_KEY, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return `aes256:${iv.toString('hex')}:${encrypted}`;
+}
+
+function decryptText(cipherText) {
+  if (!cipherText || !cipherText.startsWith('aes256:')) return cipherText;
+  try {
+    const parts = cipherText.split(':');
+    const iv = Buffer.from(parts[1], 'hex');
+    const encryptedData = parts[2];
+    const decipher = crypto.createDecipheriv('aes-256-cbc', CIPHER_KEY, iv);
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (e) {
+    return cipherText;
+  }
+}
+
 // ===================================================================
 // Cyber Knight In-Memory Database (JavaScript)
 // Fully Vercel-compatible: no filesystem, no node:sqlite, no binaries.
@@ -217,10 +266,19 @@ const initialTimetable = [
 
 export class CyberKnightDB {
   constructor() {
+    const defaultHashedPassword = hashPassword("Password@123");
+    const defaultEncryptedRoll = encryptText("2026CK001");
+
     // Initialize store with seed data
     this.store = {
       users: [
-        { rollNumber: "2026CK001", email: "fresher@cyberknight.edu", password: "Password@123", joinedAt: new Date().toISOString() }
+        {
+          rollNumber: "2026CK001",
+          email: "fresher@cyberknight.edu",
+          password: defaultHashedPassword,
+          encryptedRollNumber: defaultEncryptedRoll,
+          joinedAt: new Date().toISOString()
+        }
       ],
       events: JSON.parse(JSON.stringify(initialEvents)),
       clubs: JSON.parse(JSON.stringify(initialClubs)),
@@ -357,6 +415,14 @@ export class CyberKnightDB {
     const limitMatch = queryLower.match(/limit\s+(\d+)/);
     if (limitMatch) {
       rows = rows.slice(0, parseInt(limitMatch[1], 10));
+    }
+
+    if (tableName === 'users' && rows) {
+      rows = rows.map(r => ({
+        ...r,
+        password: '[PBKDF2-SHA512 SECURED & HASHED]',
+        encryptedRollNumber: r.encryptedRollNumber || encryptText(r.rollNumber)
+      }));
     }
 
     if (log) this.logQuery(sql, true, rows.length);
@@ -562,9 +628,16 @@ export class CyberKnightDB {
       return { success: false, error: `Email ${email} is already linked to another User ID.` };
     }
 
-    const res = this.executeSQL("INSERT INTO users (roll_number, email, password, joined_at) VALUES (?, ?, ?, ?)", [rollNumber, email, pass, new Date().toISOString()]);
+    const hashedPassword = hashPassword(pass);
+    const encryptedRoll = encryptText(rollNumber);
+
+    const res = this.executeSQL("INSERT INTO users (roll_number, email, password, joined_at) VALUES (?, ?, ?, ?)", [rollNumber, email, hashedPassword, new Date().toISOString()]);
     if (res.success) {
-      this.addNotification(rollNumber, 'push', 'Registration Success', 'Your campus credentials are now active!');
+      const u = this.store.users.find(usr => usr.rollNumber === rollNumber);
+      if (u) {
+        u.encryptedRollNumber = encryptedRoll;
+      }
+      this.addNotification(rollNumber, 'push', 'Registration Success', 'Your campus credentials are now active and cryptographically secured (PBKDF2 + AES-256)!');
       return { success: true };
     }
     return { success: false, error: res.error || "Failed to create user" };
@@ -573,8 +646,8 @@ export class CyberKnightDB {
   login(rollNumber, pass) {
     const res = this.executeSQL("SELECT * FROM users WHERE roll_number = ?", [rollNumber]);
     if (res.success && res.rows && res.rows.length > 0) {
-      const user = res.rows[0];
-      if (user.password === pass) {
+      const user = this.store.users.find(u => u.rollNumber === rollNumber);
+      if (user && verifyPassword(pass, user.password)) {
         return { success: true, user: { rollNumber: user.rollNumber, email: user.email, joinedAt: user.joinedAt } };
       }
     }
@@ -588,10 +661,12 @@ export class CyberKnightDB {
     }
 
     const rollNumber = existing.rows[0].rollNumber;
-    const updateRes = this.executeSQL("UPDATE users SET password = ? WHERE email = ?", [pass, email]);
+    const hashedPassword = hashPassword(pass);
+
+    const updateRes = this.executeSQL("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, email]);
     if (updateRes.success && updateRes.affectedRows && updateRes.affectedRows > 0) {
-      this.addNotification(rollNumber, 'email', 'Password Updated', 'Your Cyber Knight password has been reset successfully.');
-      this.addNotification(rollNumber, 'push', 'Security Alert', 'Your password was changed.');
+      this.addNotification(rollNumber, 'email', 'Password Updated', 'Your Cyber Knight password has been reset and re-hashed with PBKDF2-SHA512.');
+      this.addNotification(rollNumber, 'push', 'Security Alert', 'Your password was securely changed.');
       return { success: true };
     }
     return { success: false, error: updateRes.error || "Failed to reset password." };
