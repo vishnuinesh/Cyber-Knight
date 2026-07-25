@@ -1,0 +1,6 @@
+{
+  "name": "Cyber Knight",
+  "description": "A centralized campus portal for freshers to explore events, clubs, faculty, timetables, register for events, and chat with an AI student assistant powered by Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
