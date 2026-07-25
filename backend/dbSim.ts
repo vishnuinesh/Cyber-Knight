@@ -3,9 +3,20 @@ import path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import type { CampusEvent, Club, Faculty, TimetableItem, User, Registration, Notification, SQLQueryLog } from '../frontend/src/types';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// On Vercel, the filesystem is read-only except /tmp — use /tmp for SQLite
+const IS_VERCEL = !!process.env.VERCEL;
+const SOURCE_DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = IS_VERCEL ? '/tmp' : SOURCE_DATA_DIR;
 const DB_FILE = path.join(DATA_DIR, 'cyber_knight.db');
-const OLD_JSON_DB = path.join(DATA_DIR, 'cyber_knight_db.json');
+const OLD_JSON_DB = path.join(SOURCE_DATA_DIR, 'cyber_knight_db.json');
+
+// On Vercel, copy seed DB from read-only source to /tmp if not already there
+if (IS_VERCEL && !fs.existsSync(DB_FILE)) {
+  const sourceDB = path.join(SOURCE_DATA_DIR, 'cyber_knight.db');
+  if (fs.existsSync(sourceDB)) {
+    fs.copyFileSync(sourceDB, DB_FILE);
+  }
+}
 
 // Helper to convert object keys from snake_case to camelCase
 function toCamelCase(obj: any): any {
