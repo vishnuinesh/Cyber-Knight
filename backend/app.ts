@@ -13,6 +13,20 @@ export const BACKEND_PORT = process.env.BACKEND_PORT
 
 app.use(express.json());
 
+// CORS & Path Normalization for Serverless (Vercel / Render / Local)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  if (!req.url.startsWith("/api") && !req.url.startsWith("/assets")) {
+    req.url = "/api" + req.url;
+  }
+  next();
+});
+
 // Initialize the database engine
 const db = new CyberKnightDB();
 
