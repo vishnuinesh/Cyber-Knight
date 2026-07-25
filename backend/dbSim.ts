@@ -1,56 +1,13 @@
-import fs from 'fs';
-import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
 import type { CampusEvent, Club, Faculty, TimetableItem, User, Registration, Notification, SQLQueryLog } from '../frontend/src/types';
 
-// On Vercel, the filesystem is read-only except /tmp — use /tmp for SQLite
-const IS_VERCEL = !!process.env.VERCEL;
-const SOURCE_DATA_DIR = path.join(process.cwd(), 'data');
-const DATA_DIR = IS_VERCEL ? '/tmp' : SOURCE_DATA_DIR;
-const DB_FILE = path.join(DATA_DIR, 'cyber_knight.db');
-const OLD_JSON_DB = path.join(SOURCE_DATA_DIR, 'cyber_knight_db.json');
+// ===================================================================
+// Cyber Knight In-Memory Database
+// Fully Vercel-compatible: no filesystem, no node:sqlite, no binaries.
+// Data resets on cold start (acceptable for demo/portfolio apps).
+// ===================================================================
 
-// On Vercel, copy seed DB from read-only source to /tmp if not already there
-if (IS_VERCEL && !fs.existsSync(DB_FILE)) {
-  const sourceDB = path.join(SOURCE_DATA_DIR, 'cyber_knight.db');
-  if (fs.existsSync(sourceDB)) {
-    fs.copyFileSync(sourceDB, DB_FILE);
-  }
-}
+// ---------- Seed Data ----------
 
-// Helper to convert object keys from snake_case to camelCase
-function toCamelCase(obj: any): any {
-  if (Array.isArray(obj)) {
-    return obj.map(toCamelCase);
-  }
-  if (obj !== null && typeof obj === 'object') {
-    const newObj: any = {};
-    for (const key of Object.keys(obj)) {
-      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-      newObj[camelKey] = toCamelCase(obj[key]);
-    }
-    return newObj;
-  }
-  return obj;
-}
-
-// Helper to convert object keys from camelCase to snake_case
-function toSnakeCase(obj: any): any {
-  if (Array.isArray(obj)) {
-    return obj.map(toSnakeCase);
-  }
-  if (obj !== null && typeof obj === 'object') {
-    const newObj: any = {};
-    for (const key of Object.keys(obj)) {
-      const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-      newObj[snakeKey] = toSnakeCase(obj[key]);
-    }
-    return newObj;
-  }
-  return obj;
-}
-
-// Initial seed data
 const initialEvents: CampusEvent[] = [
   {
     id: 1,
@@ -259,363 +216,87 @@ const initialTimetable: TimetableItem[] = [
   { id: 9, day: "Friday", timeSlot: "10:00 AM - 12:00 PM", subject: "Open Source Systems Lab", room: "Lab 310, Block A", facultyName: "Prof. Linus Torvalds", courseCode: "CSE-108" }
 ];
 
+// ---------- In-Memory Table Store ----------
+
+interface TableStore {
+  users: (User & { password: string })[];
+  events: CampusEvent[];
+  clubs: Club[];
+  faculty: Faculty[];
+  timetable: TimetableItem[];
+  registrations: Registration[];
+  notifications: Notification[];
+  queryLogs: SQLQueryLog[];
+}
+
+// Auto-increment ID counters
+interface IdCounters {
+  events: number;
+  clubs: number;
+  faculty: number;
+  timetable: number;
+  registrations: number;
+  notifications: number;
+  queryLogs: number;
+}
+
+// ---------- The Database Class ----------
+
 export class CyberKnightDB {
-  private db: DatabaseSync;
-  private stmtCache = new Map<string, any>();
+  private store: TableStore;
+  private ids: IdCounters;
 
   constructor() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+    // Initialize store with seed data
+    this.store = {
+      users: [
+        { rollNumber: "2026CK001", email: "fresher@cyberknight.edu", password: "Password@123", joinedAt: new Date().toISOString() }
+      ],
+      events: JSON.parse(JSON.stringify(initialEvents)),
+      clubs: JSON.parse(JSON.stringify(initialClubs)),
+      faculty: JSON.parse(JSON.stringify(initialFaculty)),
+      timetable: JSON.parse(JSON.stringify(initialTimetable)),
+      registrations: [],
+      notifications: [],
+      queryLogs: []
+    };
 
-    const needsMigration = !fs.existsSync(DB_FILE) && fs.existsSync(OLD_JSON_DB);
+    // Set auto-increment counters
+    this.ids = {
+      events: Math.max(...this.store.events.map(e => e.id), 0) + 1,
+      clubs: Math.max(...this.store.clubs.map(c => c.id), 0) + 1,
+      faculty: Math.max(...this.store.faculty.map(f => f.id), 0) + 1,
+      timetable: Math.max(...this.store.timetable.map(t => t.id), 0) + 1,
+      registrations: 1,
+      notifications: 1,
+      queryLogs: 1
+    };
 
-    // Initialize node:sqlite DatabaseSync instance
-    this.db = new DatabaseSync(DB_FILE);
-
-    // Setup SQL structures
-    this.initDatabase();
-
-    if (needsMigration) {
-      this.migrateFromJSON();
-    } else {
-      this.seedDefaultData();
-    }
+    console.log("[Cyber Knight DB] In-memory database initialized with seed data.");
   }
 
-  private initDatabase() {
-    // Enable SQLite foreign keys constraint and optimize performance
-    this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec("PRAGMA busy_timeout = 5000;");
-
-    // Create users table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        roll_number TEXT PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        joined_at TEXT NOT NULL
-      );
-    `);
-
-    // Create events table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL,
-        date TEXT NOT NULL,
-        time TEXT NOT NULL,
-        venue TEXT NOT NULL,
-        category TEXT NOT NULL,
-        eligible_year TEXT NOT NULL,
-        image_url TEXT NOT NULL,
-        registration_count INTEGER DEFAULT 0
-      );
-    `);
-
-    // Create clubs table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS clubs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        description TEXT NOT NULL,
-        lead TEXT NOT NULL,
-        contact TEXT NOT NULL,
-        members_count INTEGER DEFAULT 0,
-        image_url TEXT
-      );
-    `);
-
-    // Create faculty table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS faculty (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        department TEXT NOT NULL,
-        designation TEXT NOT NULL,
-        email TEXT NOT NULL,
-        office TEXT NOT NULL
-      );
-    `);
-
-    // Create timetable table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS timetable (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        day TEXT NOT NULL,
-        time_slot TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        room TEXT NOT NULL,
-        faculty_name TEXT NOT NULL,
-        course_code TEXT NOT NULL
-      );
-    `);
-
-    // Create registrations table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS registrations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        roll_number TEXT NOT NULL,
-        event_id INTEGER NOT NULL,
-        registered_at TEXT NOT NULL,
-        UNIQUE(roll_number, event_id),
-        FOREIGN KEY(roll_number) REFERENCES users(roll_number) ON DELETE CASCADE,
-        FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
-      );
-    `);
-
-    // Create notifications table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        roll_number TEXT NOT NULL,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        message TEXT NOT NULL,
-        status TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        FOREIGN KEY(roll_number) REFERENCES users(roll_number) ON DELETE CASCADE
-      );
-    `);
-
-    // Create query logs table
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS query_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        query TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        success INTEGER NOT NULL,
-        rows_count INTEGER NOT NULL,
-        error TEXT
-      );
-    `);
-
-    // Create database indexes for optimized querying
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_notifications_roll_number ON notifications(roll_number);");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_registrations_roll_number ON registrations(roll_number);");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_registrations_event_id ON registrations(event_id);");
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category);");
-  }
-
-  private migrateFromJSON() {
-    try {
-      console.log("[Cyber Knight DB] Migrating state from old JSON database...");
-      const fileContent = fs.readFileSync(OLD_JSON_DB, 'utf-8');
-      const parsed = JSON.parse(fileContent);
-
-      const insertUser = this.db.prepare("INSERT INTO users (roll_number, email, password, joined_at) VALUES (?, ?, ?, ?)");
-      const insertEvent = this.db.prepare("INSERT INTO events (id, title, description, date, time, venue, category, eligible_year, image_url, registration_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-      const insertClub = this.db.prepare("INSERT INTO clubs (id, name, description, lead, contact, members_count, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const insertFaculty = this.db.prepare("INSERT INTO faculty (id, name, department, designation, email, office) VALUES (?, ?, ?, ?, ?, ?)");
-      const insertTimetable = this.db.prepare("INSERT INTO timetable (id, day, time_slot, subject, room, faculty_name, course_code) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const insertRegistration = this.db.prepare("INSERT INTO registrations (id, roll_number, event_id, registered_at) VALUES (?, ?, ?, ?)");
-      const insertNotification = this.db.prepare("INSERT INTO notifications (id, roll_number, type, title, message, status, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const insertQueryLog = this.db.prepare("INSERT INTO query_logs (id, query, timestamp, success, rows_count, error) VALUES (?, ?, ?, ?, ?, ?)");
-
-      // Migrate Users
-      if (Array.isArray(parsed.users)) {
-        for (const u of parsed.users) {
-          try {
-            insertUser.run(u.rollNumber, u.email, u.password || 'Password@123', u.joinedAt || new Date().toISOString());
-          } catch (e) {
-            console.error("Migration error user:", u, e);
-          }
-        }
-      }
-
-      // Migrate Events
-      if (Array.isArray(parsed.events) && parsed.events.length > 0) {
-        for (const ev of parsed.events) {
-          try {
-            insertEvent.run(ev.id, ev.title, ev.description, ev.date, ev.time, ev.venue, ev.category, ev.eligibleYear, ev.imageUrl, ev.registrationCount);
-          } catch (e) {
-            console.error("Migration error event:", ev, e);
-          }
-        }
-      } else {
-        this.seedEvents();
-      }
-
-      // Migrate Clubs
-      if (Array.isArray(parsed.clubs) && parsed.clubs.length > 0) {
-        for (const c of parsed.clubs) {
-          try {
-            insertClub.run(c.id, c.name, c.description, c.lead, c.contact, c.membersCount, c.imageUrl || null);
-          } catch (e) {
-            console.error("Migration error club:", c, e);
-          }
-        }
-      } else {
-        this.seedClubs();
-      }
-
-      // Migrate Faculty
-      this.seedFaculty();
-
-      // Migrate Timetable
-      this.seedTimetable();
-
-      // Migrate Registrations
-      if (Array.isArray(parsed.registrations)) {
-        for (const r of parsed.registrations) {
-          try {
-            insertRegistration.run(r.id, r.rollNumber, r.eventId, r.registeredAt);
-          } catch (e) {
-            console.error("Migration error registration:", r, e);
-          }
-        }
-      }
-
-      // Migrate Notifications
-      if (Array.isArray(parsed.notifications)) {
-        for (const n of parsed.notifications) {
-          try {
-            insertNotification.run(n.id, n.rollNumber, n.type, n.title, n.message, n.status, n.timestamp);
-          } catch (e) {
-            console.error("Migration error notification:", n, e);
-          }
-        }
-      }
-
-      // Migrate Query Logs
-      if (Array.isArray(parsed.queryLog)) {
-        for (const q of parsed.queryLog) {
-          try {
-            insertQueryLog.run(q.id, q.query, q.timestamp, q.success ? 1 : 0, q.rowsCount, q.error || null);
-          } catch (e) {
-            console.error("Migration error query log:", q, e);
-          }
-        }
-      }
-
-      console.log("[Cyber Knight DB] Migration from JSON completed successfully!");
-    } catch (e) {
-      console.error("[Cyber Knight DB] Migration failed. Seeding defaults.", e);
-      this.seedDefaultData();
-    }
-  }
-
-  private seedDefaultData() {
-    // 1. Seed Default User
-    const userCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM users");
-    const userCountResult = userCountStmt.get() as { count: number };
-    if (userCountResult.count === 0) {
-      const insertUser = this.db.prepare("INSERT INTO users (roll_number, email, password, joined_at) VALUES (?, ?, ?, ?)");
-      insertUser.run("2026CK001", "fresher@cyberknight.edu", "Password@123", new Date().toISOString());
-    }
-
-    // 2. Seed Events
-    const eventCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM events");
-    const eventCountResult = eventCountStmt.get() as { count: number };
-    if (eventCountResult.count === 0) {
-      this.seedEvents();
-    } else {
-      // Ensure Freshers Party 2026 is seeded specifically if database already exists
-      const partyCheckStmt = this.db.prepare("SELECT COUNT(*) as count FROM events WHERE title = 'Freshers Party 2026'");
-      const partyCheck = partyCheckStmt.get() as { count: number };
-      if (partyCheck.count === 0) {
-        const insertParty = this.db.prepare("INSERT INTO events (id, title, description, date, time, venue, category, eligible_year, image_url, registration_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        insertParty.run(
-          8,
-          "Freshers Party 2026",
-          "Welcome Freshers! This is an opportunity for the newcomers to showcase their talent. Scan the QR code to register (signup through your roll number). Highlights: DJ Music, Dance Floor, Stage Performances by seniors and batchmates, and delicious refreshments!",
-          "2026-07-25",
-          "04:00 PM - 08:00 PM",
-          "Silver Jubilee Auditorium",
-          "upcoming",
-          "1st Year Only",
-          "/assets/freshers_party.jpg",
-          0
-        );
-      }
-    }
-
-    // 3. Seed Clubs
-    const clubCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM clubs");
-    const clubCountResult = clubCountStmt.get() as { count: number };
-    if (clubCountResult.count === 0) {
-      this.seedClubs();
-    }
-
-    // 4. Seed Faculty
-    const facultyCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM faculty");
-    const facultyCountResult = facultyCountStmt.get() as { count: number };
-    if (facultyCountResult.count === 0) {
-      this.seedFaculty();
-    }
-
-    // 5. Seed Timetable
-    const timetableCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM timetable");
-    const timetableCountResult = timetableCountStmt.get() as { count: number };
-    if (timetableCountResult.count === 0) {
-      this.seedTimetable();
-    }
-  }
-
-  private seedEvents() {
-    const insertEvent = this.db.prepare("INSERT INTO events (title, description, date, time, venue, category, eligible_year, image_url, registration_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    for (const ev of initialEvents) {
-      insertEvent.run(ev.title, ev.description, ev.date, ev.time, ev.venue, ev.category, ev.eligibleYear, ev.imageUrl, ev.registrationCount);
-    }
-  }
-
-  private seedClubs() {
-    const insertClub = this.db.prepare("INSERT INTO clubs (name, description, lead, contact, members_count, image_url) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const c of initialClubs) {
-      insertClub.run(c.name, c.description, c.lead, c.contact, c.membersCount, c.imageUrl || null);
-    }
-  }
-
-  private seedFaculty() {
-    const insertFaculty = this.db.prepare("INSERT INTO faculty (name, department, designation, email, office) VALUES (?, ?, ?, ?, ?)");
-    for (const f of initialFaculty) {
-      insertFaculty.run(f.name, f.department, f.designation, f.email, f.office);
-    }
-  }
-
-  private seedTimetable() {
-    const insertTimetable = this.db.prepare("INSERT INTO timetable (day, time_slot, subject, room, faculty_name, course_code) VALUES (?, ?, ?, ?, ?, ?)");
-    for (const t of initialTimetable) {
-      insertTimetable.run(t.day, t.timeSlot, t.subject, t.room, t.facultyName, t.courseCode);
-    }
-  }
-
-  private getPreparedStatement(sql: string) {
-    let stmt = this.stmtCache.get(sql);
-    if (!stmt) {
-      stmt = this.db.prepare(sql);
-      this.stmtCache.set(sql, stmt);
-    }
-    return stmt;
-  }
+  // ---------- Query Log ----------
 
   public getQueryLog(): SQLQueryLog[] {
-    try {
-      const stmt = this.getPreparedStatement("SELECT * FROM query_logs ORDER BY id DESC LIMIT 200");
-      const rows = stmt.all();
-      return toCamelCase(rows) as SQLQueryLog[];
-    } catch (e) {
-      console.error("Failed to read query logs from SQLite:", e);
-      return [];
-    }
+    return [...this.store.queryLogs].reverse().slice(0, 200);
   }
 
   private logQuery(query: string, success: boolean, rowsCount: number, error?: string): void {
-    try {
-      const stmt = this.getPreparedStatement("INSERT INTO query_logs (query, timestamp, success, rows_count, error) VALUES (?, ?, ?, ?, ?)");
-      stmt.run(query, new Date().toISOString(), success ? 1 : 0, rowsCount, error || null);
-    } catch (e) {
-      console.error("Failed to write query log to SQLite:", e);
-    }
+    this.store.queryLogs.push({
+      id: this.ids.queryLogs++,
+      query,
+      timestamp: new Date().toISOString(),
+      success,
+      rowsCount,
+      error
+    });
   }
 
+  // ---------- SQL Executor (simulated for in-memory store) ----------
+
   /**
-   * Main SQL query runner!
-   * Runs standard SQL directly against node:sqlite DatabaseSync.
-   * Leverages cached compiled statements.
+   * Simulated SQL executor that maps common SQL queries to in-memory operations.
+   * Supports SELECT * FROM <table>, INSERT INTO, UPDATE, DELETE, and WHERE clauses.
    */
   public executeSQL(
     sql: string,
@@ -626,33 +307,323 @@ export class CyberKnightDB {
     const queryLower = cleanSql.toLowerCase();
 
     try {
-      const stmt = this.getPreparedStatement(cleanSql);
-
-      const isSelect =
-        queryLower.startsWith('select') ||
-        queryLower.startsWith('pragma') ||
-        queryLower.startsWith('explain') ||
-        queryLower.startsWith('with') ||
-        queryLower.startsWith('show');
-
-      if (isSelect) {
-        const rawRows = stmt.all(...params);
-        const rows = toCamelCase(rawRows);
-        if (log) this.logQuery(cleanSql, true, rows.length);
-        return { success: true, rows };
+      // Route to the correct table/operation
+      if (queryLower.startsWith('select')) {
+        return this.handleSelect(cleanSql, queryLower, params, log);
+      } else if (queryLower.startsWith('insert')) {
+        return this.handleInsert(cleanSql, queryLower, params, log);
+      } else if (queryLower.startsWith('update')) {
+        return this.handleUpdate(cleanSql, queryLower, params, log);
+      } else if (queryLower.startsWith('delete')) {
+        return this.handleDelete(cleanSql, queryLower, params, log);
+      } else if (queryLower.startsWith('pragma') || queryLower.startsWith('show')) {
+        // Return schema info for PRAGMA/SHOW commands
+        const tables = ['users', 'events', 'clubs', 'faculty', 'timetable', 'registrations', 'notifications', 'query_logs'];
+        if (log) this.logQuery(cleanSql, true, tables.length);
+        return { success: true, rows: tables.map(t => ({ name: t })) };
       } else {
-        const info = stmt.run(...params);
-        if (log) this.logQuery(cleanSql, true, info.changes);
-        return { success: true, affectedRows: info.changes };
+        if (log) this.logQuery(cleanSql, false, 0, 'Unsupported SQL operation in demo mode.');
+        return { success: false, error: 'Unsupported SQL operation in demo mode. Supported: SELECT, INSERT, UPDATE, DELETE.' };
       }
     } catch (err: any) {
-      console.error("[SQLite Execution Error]:", cleanSql, err);
+      console.error("[SQL Execution Error]:", cleanSql, err);
       if (log) this.logQuery(cleanSql, false, 0, err.message);
       return { success: false, error: err.message };
     }
   }
 
-  // Auth Operations
+  private getTableByName(tableName: string): any[] | null {
+    const map: Record<string, any[]> = {
+      users: this.store.users,
+      events: this.store.events,
+      clubs: this.store.clubs,
+      faculty: this.store.faculty,
+      timetable: this.store.timetable,
+      registrations: this.store.registrations,
+      notifications: this.store.notifications,
+      query_logs: this.store.queryLogs
+    };
+    return map[tableName] || null;
+  }
+
+  private extractTableName(queryLower: string): string | null {
+    // Match "FROM <table>" or "INTO <table>" or "UPDATE <table>"
+    const fromMatch = queryLower.match(/(?:from|into|update)\s+(\w+)/);
+    return fromMatch ? fromMatch[1] : null;
+  }
+
+  private handleSelect(
+    sql: string, queryLower: string, params: any[], log: boolean
+  ): { success: boolean; rows?: any[]; error?: string } {
+    const tableName = this.extractTableName(queryLower);
+    if (!tableName) {
+      if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
+      return { success: false, error: 'Could not determine table name from query.' };
+    }
+
+    // Special: last_insert_rowid()
+    if (queryLower.includes('last_insert_rowid')) {
+      const id = Math.max(this.ids.notifications - 1, 0);
+      if (log) this.logQuery(sql, true, 1);
+      return { success: true, rows: [{ id }] };
+    }
+
+    // Special: COUNT(*)
+    if (queryLower.includes('count(*)')) {
+      const table = this.getTableByName(tableName);
+      if (!table) {
+        if (log) this.logQuery(sql, false, 0, `Table '${tableName}' not found`);
+        return { success: false, error: `Table '${tableName}' not found.` };
+      }
+      let filtered = this.applyWhere(table, queryLower, params, tableName);
+      if (log) this.logQuery(sql, true, 1);
+      return { success: true, rows: [{ count: filtered.length }] };
+    }
+
+    const table = this.getTableByName(tableName);
+    if (!table) {
+      if (log) this.logQuery(sql, false, 0, `Table '${tableName}' not found`);
+      return { success: false, error: `Table '${tableName}' not found.` };
+    }
+
+    let rows = this.applyWhere(table, queryLower, params, tableName);
+
+    // Handle ORDER BY
+    const orderMatch = queryLower.match(/order\s+by\s+(\w+)\s*(asc|desc)?/);
+    if (orderMatch) {
+      const orderCol = this.snakeToCamel(orderMatch[1]);
+      const desc = orderMatch[2] === 'desc';
+      rows.sort((a: any, b: any) => {
+        if (a[orderCol] < b[orderCol]) return desc ? 1 : -1;
+        if (a[orderCol] > b[orderCol]) return desc ? -1 : 1;
+        return 0;
+      });
+    }
+
+    // Handle LIMIT
+    const limitMatch = queryLower.match(/limit\s+(\d+)/);
+    if (limitMatch) {
+      rows = rows.slice(0, parseInt(limitMatch[1], 10));
+    }
+
+    if (log) this.logQuery(sql, true, rows.length);
+    return { success: true, rows };
+  }
+
+  private handleInsert(
+    sql: string, queryLower: string, params: any[], log: boolean
+  ): { success: boolean; affectedRows?: number; error?: string } {
+    const tableName = this.extractTableName(queryLower);
+    if (!tableName) {
+      if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
+      return { success: false, error: 'Could not determine table name from query.' };
+    }
+
+    // Extract column names from SQL
+    const colMatch = sql.match(/\(([^)]+)\)\s*values/i);
+    if (!colMatch) {
+      if (log) this.logQuery(sql, false, 0, 'Could not parse column names');
+      return { success: false, error: 'Could not parse column names from INSERT.' };
+    }
+
+    const columns = colMatch[1].split(',').map(c => this.snakeToCamel(c.trim()));
+    const row: any = {};
+
+    columns.forEach((col, i) => {
+      row[col] = params[i] !== undefined ? params[i] : null;
+    });
+
+    // Add auto-increment ID if not provided
+    if (!row.id) {
+      const idKey = tableName as keyof IdCounters;
+      if (this.ids[idKey] !== undefined) {
+        row.id = this.ids[idKey]++;
+      }
+    }
+
+    const table = this.getTableByName(tableName);
+    if (!table) {
+      if (log) this.logQuery(sql, false, 0, `Table '${tableName}' not found`);
+      return { success: false, error: `Table '${tableName}' not found.` };
+    }
+
+    // Check UNIQUE constraints for users
+    if (tableName === 'users') {
+      if (table.find((u: any) => u.rollNumber === row.rollNumber)) {
+        const err = `UNIQUE constraint failed: users.roll_number`;
+        if (log) this.logQuery(sql, false, 0, err);
+        return { success: false, error: err };
+      }
+      if (table.find((u: any) => u.email === row.email)) {
+        const err = `UNIQUE constraint failed: users.email`;
+        if (log) this.logQuery(sql, false, 0, err);
+        return { success: false, error: err };
+      }
+    }
+
+    // Check UNIQUE constraint for registrations (roll_number + event_id)
+    if (tableName === 'registrations') {
+      if (table.find((r: any) => r.rollNumber === row.rollNumber && r.eventId === row.eventId)) {
+        const err = `UNIQUE constraint failed: registrations.roll_number, registrations.event_id`;
+        if (log) this.logQuery(sql, false, 0, err);
+        return { success: false, error: err };
+      }
+    }
+
+    table.push(row);
+    if (log) this.logQuery(sql, true, 1);
+    return { success: true, affectedRows: 1 };
+  }
+
+  private handleUpdate(
+    sql: string, queryLower: string, params: any[], log: boolean
+  ): { success: boolean; affectedRows?: number; error?: string } {
+    const tableName = this.extractTableName(queryLower);
+    if (!tableName) {
+      if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
+      return { success: false, error: 'Could not determine table name from query.' };
+    }
+
+    const table = this.getTableByName(tableName);
+    if (!table) {
+      if (log) this.logQuery(sql, false, 0, `Table '${tableName}' not found`);
+      return { success: false, error: `Table '${tableName}' not found.` };
+    }
+
+    // Extract SET clauses
+    const setMatch = sql.match(/set\s+(.+?)(?:\s+where\s+|$)/i);
+    if (!setMatch) {
+      if (log) this.logQuery(sql, false, 0, 'Could not parse SET clause');
+      return { success: false, error: 'Could not parse SET clause.' };
+    }
+
+    const rows = this.applyWhere(table, queryLower, params, tableName);
+    let affected = 0;
+
+    // Parse SET assignments
+    const setClauses = setMatch[1].split(',').map(c => c.trim());
+
+    for (const row of rows) {
+      const idx = table.indexOf(row);
+      if (idx === -1) continue;
+
+      let paramIdx = 0;
+      for (const clause of setClauses) {
+        // Handle "col = ?" pattern
+        const eqMatch = clause.match(/(\w+)\s*=\s*\?/);
+        if (eqMatch) {
+          const col = this.snakeToCamel(eqMatch[1]);
+          table[idx][col] = params[paramIdx++];
+          continue;
+        }
+
+        // Handle "col = col + 1" or "col = col - 1"
+        const incrMatch = clause.match(/(\w+)\s*=\s*\1\s*\+\s*(\d+)/);
+        if (incrMatch) {
+          const col = this.snakeToCamel(incrMatch[1]);
+          table[idx][col] = (table[idx][col] || 0) + parseInt(incrMatch[2], 10);
+          continue;
+        }
+
+        // Handle "col = CASE WHEN col > 0 THEN col - 1 ELSE 0 END"
+        const caseDecrMatch = clause.match(/(\w+)\s*=\s*case\s+when\s+\1\s*>\s*0\s+then\s+\1\s*-\s*1\s+else\s+0\s+end/i);
+        if (caseDecrMatch) {
+          const col = this.snakeToCamel(caseDecrMatch[1]);
+          table[idx][col] = Math.max((table[idx][col] || 0) - 1, 0);
+          continue;
+        }
+      }
+      affected++;
+    }
+
+    if (log) this.logQuery(sql, true, affected);
+    return { success: true, affectedRows: affected };
+  }
+
+  private handleDelete(
+    sql: string, queryLower: string, params: any[], log: boolean
+  ): { success: boolean; affectedRows?: number; error?: string } {
+    const tableName = this.extractTableName(queryLower);
+    if (!tableName) {
+      if (log) this.logQuery(sql, false, 0, 'Could not determine table name');
+      return { success: false, error: 'Could not determine table name from query.' };
+    }
+
+    const table = this.getTableByName(tableName);
+    if (!table) {
+      if (log) this.logQuery(sql, false, 0, `Table '${tableName}' not found`);
+      return { success: false, error: `Table '${tableName}' not found.` };
+    }
+
+    const toDelete = this.applyWhere(table, queryLower, params, tableName);
+    let affected = 0;
+
+    for (const row of toDelete) {
+      const idx = table.indexOf(row);
+      if (idx !== -1) {
+        table.splice(idx, 1);
+        affected++;
+      }
+    }
+
+    if (log) this.logQuery(sql, true, affected);
+    return { success: true, affectedRows: affected };
+  }
+
+  // ---------- WHERE Clause Filter ----------
+
+  private applyWhere(table: any[], queryLower: string, params: any[], tableName: string): any[] {
+    const whereMatch = queryLower.match(/where\s+(.+?)(?:\s+order|\s+limit|\s+group|\s*$)/i);
+    if (!whereMatch) return [...table];
+
+    const whereClause = whereMatch[1].trim();
+
+    // Split by AND
+    const conditions = whereClause.split(/\s+and\s+/i);
+    let paramIdx = 0;
+
+    // Count how many params are used by SET clause in UPDATE queries
+    if (queryLower.startsWith('update')) {
+      const setMatch = queryLower.match(/set\s+(.+?)\s+where/i);
+      if (setMatch) {
+        const setClauses = setMatch[1].split(',');
+        for (const clause of setClauses) {
+          if (clause.includes('?')) paramIdx++;
+        }
+      }
+    }
+
+    return table.filter(row => {
+      let localParamIdx = paramIdx;
+      return conditions.every(cond => {
+        const eqMatch = cond.match(/(\w+)\s*=\s*\?/);
+        if (eqMatch) {
+          const col = this.snakeToCamel(eqMatch[1]);
+          const val = params[localParamIdx++];
+          // Handle type coercion (string vs number)
+          return String(row[col]) === String(val);
+        }
+
+        // Handle "col = 'value'" literal
+        const litMatch = cond.match(/(\w+)\s*=\s*'([^']+)'/);
+        if (litMatch) {
+          const col = this.snakeToCamel(litMatch[1]);
+          return String(row[col]) === litMatch[2];
+        }
+
+        return true; // Unknown condition — include row
+      });
+    });
+  }
+
+  // ---------- Helper ----------
+
+  private snakeToCamel(s: string): string {
+    return s.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  // ---------- Auth Operations ----------
+
   public signup(rollNumber: string, email: string, pass: string): { success: boolean; error?: string } {
     const existing = this.executeSQL("SELECT * FROM users WHERE roll_number = ?", [rollNumber]);
     if (existing.success && existing.rows && existing.rows.length > 0) {
@@ -673,9 +644,12 @@ export class CyberKnightDB {
   }
 
   public login(rollNumber: string, pass: string): { success: boolean; user?: User; error?: string } {
-    const res = this.executeSQL("SELECT * FROM users WHERE roll_number = ? AND password = ?", [rollNumber, pass]);
+    const res = this.executeSQL("SELECT * FROM users WHERE roll_number = ?", [rollNumber]);
     if (res.success && res.rows && res.rows.length > 0) {
-      return { success: true, user: res.rows[0] as User };
+      const user = res.rows[0] as any;
+      if (user.password === pass) {
+        return { success: true, user: { rollNumber: user.rollNumber, email: user.email, joinedAt: user.joinedAt } as User };
+      }
     }
     return { success: false, error: "Invalid User ID or Password." };
   }
@@ -696,7 +670,8 @@ export class CyberKnightDB {
     return { success: false, error: updateRes.error || "Failed to reset password." };
   }
 
-  // Registration & Event Operations
+  // ---------- Registration & Event Operations ----------
+
   public registerForEvent(rollNumber: string, eventId: number): { success: boolean; error?: string } {
     const eventQuery = this.executeSQL("SELECT * FROM events WHERE id = ?", [eventId]);
     if (!eventQuery.success || !eventQuery.rows || eventQuery.rows.length === 0) {
@@ -711,7 +686,9 @@ export class CyberKnightDB {
 
     const insertRes = this.executeSQL("INSERT INTO registrations (roll_number, event_id, registered_at) VALUES (?, ?, ?)", [rollNumber, eventId, new Date().toISOString()]);
     if (insertRes.success) {
-      this.executeSQL("UPDATE events SET registration_count = registration_count + 1 WHERE id = ?", [eventId]);
+      // Increment registration count
+      const ev = this.store.events.find(e => e.id === eventId);
+      if (ev) ev.registrationCount++;
       this.addNotification(rollNumber, 'email', `Event Registered: ${event.title}`, `Congratulations! You have successfully registered for ${event.title} scheduled on ${event.date} at ${event.time} located in ${event.venue}.`);
       this.addNotification(rollNumber, 'push', `Registration Confirmed`, `Registered for ${event.title}! See you there.`);
       return { success: true };
@@ -727,63 +704,50 @@ export class CyberKnightDB {
 
     const deleteRes = this.executeSQL("DELETE FROM registrations WHERE roll_number = ? AND event_id = ?", [rollNumber, eventId]);
     if (deleteRes.success) {
-      this.executeSQL("UPDATE events SET registration_count = CASE WHEN registration_count > 0 THEN registration_count - 1 ELSE 0 END WHERE id = ?", [eventId]);
+      // Decrement registration count
+      const ev = this.store.events.find(e => e.id === eventId);
+      if (ev) ev.registrationCount = Math.max(ev.registrationCount - 1, 0);
       this.addNotification(rollNumber, 'push', `Registration Cancelled`, `You exited the registration list.`);
       return { success: true };
     }
     return { success: false, error: deleteRes.error || "Unregistration failed." };
   }
 
-  // Notifications
+  // ---------- Notifications ----------
+
   public addNotification(rollNumber: string, type: 'email' | 'push', title: string, message: string): Notification {
-    const timestamp = new Date().toISOString();
-    const status = 'sent';
-    this.executeSQL(
-      "INSERT INTO notifications (roll_number, type, title, message, status, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-      [rollNumber, type, title, message, status, timestamp]
-    );
-
-    let insertId = 0;
-    try {
-      const row = this.getPreparedStatement("SELECT last_insert_rowid() as id").get() as { id: number };
-      insertId = row.id;
-    } catch (e) {
-      console.error("Failed to get last insert ID:", e);
-    }
-
-    return {
-      id: insertId,
+    const notification: Notification = {
+      id: this.ids.notifications++,
       rollNumber,
       type,
       title,
       message,
-      status,
-      timestamp
+      status: 'sent',
+      timestamp: new Date().toISOString()
     };
+    this.store.notifications.push(notification);
+    return notification;
   }
 
   public getNotifications(rollNumber: string): Notification[] {
-    const res = this.executeSQL("SELECT * FROM notifications WHERE roll_number = ? ORDER BY timestamp DESC", [rollNumber]);
-    if (res.success && res.rows) {
-      return res.rows as Notification[];
-    }
-    return [];
+    return this.store.notifications
+      .filter(n => n.rollNumber === rollNumber)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
 
-  // Clubs Join / Resign
+  // ---------- Clubs Join / Resign ----------
+
   public joinClub(clubName: string): { success: boolean; error?: string } {
-    const res = this.executeSQL("UPDATE clubs SET members_count = members_count + 1 WHERE name = ?", [clubName]);
-    if (res.success) {
-      return { success: true };
-    }
-    return { success: false, error: res.error || "Failed to join club." };
+    const club = this.store.clubs.find(c => c.name === clubName);
+    if (!club) return { success: false, error: "Club not found." };
+    club.membersCount++;
+    return { success: true };
   }
 
   public leaveClub(clubName: string): { success: boolean; error?: string } {
-    const res = this.executeSQL("UPDATE clubs SET members_count = CASE WHEN members_count > 0 THEN members_count - 1 ELSE 0 END WHERE name = ?", [clubName]);
-    if (res.success) {
-      return { success: true };
-    }
-    return { success: false, error: res.error || "Failed to leave club." };
+    const club = this.store.clubs.find(c => c.name === clubName);
+    if (!club) return { success: false, error: "Club not found." };
+    club.membersCount = Math.max(club.membersCount - 1, 0);
+    return { success: true };
   }
 }
